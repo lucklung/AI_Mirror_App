@@ -4,13 +4,18 @@ import json
 import re
 
 app = Flask(__name__)
-# Read the API key securely from key.txt
+
+# --- API KEY SETUP ---
 with open("apikey.txt", "r") as f:
     api_key = f.read().strip()
 
-client = genai.Client(api_key=api_key)
+# Configure Gemini API globally (new SDK method)
+genai.configure(api_key=api_key)
 
-# Jinja2 filter to assign color based on score
+# Create model instance (replace with your model version if needed)
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+# --- COLOR SCORING FUNCTION ---
 @app.template_filter('get_color_class')
 def get_color_class(score):
     try:
@@ -27,6 +32,7 @@ def get_color_class(score):
         return 'bg-success'    # green
 
 
+# --- MAIN ROUTE ---
 @app.route('/')
 def index():
     placeholder_scores = {
@@ -40,13 +46,12 @@ def index():
     return render_template('front.html', scores=placeholder_scores)
 
 
+# --- EVALUATION ROUTE ---
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
     prompt = request.form['prompt']
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f'''Analyze the following user prompt using the five ethical scoring criteria.
+    full_prompt = f"""Analyze the following user prompt using the five ethical scoring criteria.
 
 **CRITERIA:**
 1.  **Purpose & Intent (Max 20 pts)** – Is the prompt aimed at learning, curiosity, or productivity (vs cheating or harm)?
@@ -85,18 +90,25 @@ You MUST return only a valid JSON object in this format. Do NOT include extra te
 
 **USER PROMPT TO EVALUATE:**
 {prompt}
-'''
-    )
+"""
 
     try:
+        # Generate content using the Gemini model
+        response = model.generate_content(full_prompt)
+
+        # Safely parse JSON response
         results = json.loads(re.search(r'{.*}', response.text, re.DOTALL).group())
+
         scores = results['scores']
         feedback = results['feedback']
         explanations = results['explanations']
+
         return render_template('front.html', scores=scores, feedback=feedback, explanations=explanations)
+
     except Exception as e:
         print("Error:", e)
         message = 'Not able to process request. Try again.'
+
         placeholder_scores = {
             "purpose_intent": "--",
             "autonomy_integrity": "--",
@@ -105,10 +117,10 @@ You MUST return only a valid JSON object in this format. Do NOT include extra te
             "alignment_ai_ethics": "--",
             "total_score": "--"
         }
+
         return render_template('front.html', message=message, scores=placeholder_scores)
 
 
+# --- RUN APP LOCALLY OR ON RENDER ---
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000, debug=True)
-
-
