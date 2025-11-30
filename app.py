@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request
-from google import genai
+import google.generativeai as genai
 import json
 import re
 
@@ -110,4 +110,5 @@ You MUST return only a valid JSON object in this format. Do NOT include extra te
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000, debug=True)
+
 
