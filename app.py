@@ -1,38 +1,33 @@
 from flask import Flask, render_template, request
-import google.generativeai as genai
+from google import genai
 import json
 import re
 
 app = Flask(__name__)
 
-# --- API KEY SETUP ---
+# Read the API key securely from key.txt
 with open("apikey.txt", "r") as f:
     api_key = f.read().strip()
 
-# Configure Gemini API globally (new SDK method)
-genai.configure(api_key=api_key)
+client = genai.Client(api_key=api_key)
 
-# Create model instance (replace with your model version if needed)
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-# --- COLOR SCORING FUNCTION ---
+# Jinja2 filter for color classes
 @app.template_filter('get_color_class')
 def get_color_class(score):
     try:
         score = int(score)
     except:
-        return 'bg-secondary'  # gray background for invalid/missing
+        return 'bg-secondary'
     if score <= 5:
-        return 'bg-danger'     # red
+        return 'bg-danger'
     elif score <= 10:
-        return 'bg-warning'    # orange
+        return 'bg-warning'
     elif score <= 15:
-        return 'bg-info'       # light blue
+        return 'bg-info'
     else:
-        return 'bg-success'    # green
+        return 'bg-success'
 
 
-# --- MAIN ROUTE ---
 @app.route('/')
 def index():
     placeholder_scores = {
@@ -46,12 +41,13 @@ def index():
     return render_template('front.html', scores=placeholder_scores)
 
 
-# --- EVALUATION ROUTE ---
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
     prompt = request.form['prompt']
 
-    full_prompt = f"""Analyze the following user prompt using the five ethical scoring criteria.
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-exp",  # updated for current availability
+        contents=f'''Analyze the following user prompt using the five ethical scoring criteria.
 
 **CRITERIA:**
 1.  **Purpose & Intent (Max 20 pts)** – Is the prompt aimed at learning, curiosity, or productivity (vs cheating or harm)?
@@ -61,14 +57,13 @@ def evaluate():
 5.  **Alignment with AI Ethics (Max 20 pts)** – Does it reflect responsible AI use (transparency, fairness, accountability)?
 
 **TASK:**
-1.  **SCORE** – Assign a score (0–20) for each of the five categories. Be fair but critical—avoid giving 18+ unless the prompt is truly thoughtful and well-structured.
-2.  **EXPLANATION** – For each score, provide a concise explanation (1–2 sentences) explaining *why* that score was given. Keep it student-friendly and honest.
+1.  **SCORE** – Assign a score (0–20) for each of the five categories.
+2.  **EXPLANATION** – For each score, provide a concise explanation (1–2 sentences).
 3.  **TOTAL SCORE** – Return the total score (0–100).
-4.  **OVERALL FEEDBACK** – Offer a short paragraph suggesting how to improve the prompt, especially in weaker areas.
+4.  **OVERALL FEEDBACK** – Offer a short paragraph suggesting how to improve the prompt.
 
 **STRICT OUTPUT FORMAT:**
-You MUST return only a valid JSON object in this format. Do NOT include extra text, markdown, or notes.
-
+You MUST return only valid JSON in this format:
 {{
   "scores": {{
     "purpose_intent": [score],
@@ -90,25 +85,18 @@ You MUST return only a valid JSON object in this format. Do NOT include extra te
 
 **USER PROMPT TO EVALUATE:**
 {prompt}
-"""
+'''
+    )
 
     try:
-        # Generate content using the Gemini model
-        response = model.generate_content(full_prompt)
-
-        # Safely parse JSON response
         results = json.loads(re.search(r'{.*}', response.text, re.DOTALL).group())
-
         scores = results['scores']
         feedback = results['feedback']
         explanations = results['explanations']
-
         return render_template('front.html', scores=scores, feedback=feedback, explanations=explanations)
-
     except Exception as e:
         print("Error:", e)
         message = 'Not able to process request. Try again.'
-
         placeholder_scores = {
             "purpose_intent": "--",
             "autonomy_integrity": "--",
@@ -117,10 +105,8 @@ You MUST return only a valid JSON object in this format. Do NOT include extra te
             "alignment_ai_ethics": "--",
             "total_score": "--"
         }
-
         return render_template('front.html', message=message, scores=placeholder_scores)
 
 
-# --- RUN APP LOCALLY OR ON RENDER ---
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000, debug=True)
